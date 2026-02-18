@@ -58,9 +58,7 @@ Feed it a text file — emails, a book, research notes, anything — and it conv
 Timeline: [▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒·▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒·▒▒▒▒▒▒▒▒▒▒·▒▒▒▒·▒▒▒▒▒·] (965 hits in 4.1ms)
 
 Top Hit (0.235):
-From: dorieforrie@bellsouth.net
-Sent: Friday, August 30, 2024 2:52 PM
-To: Antti Luode <anttinorthwest@hotmail.com>...
+
 ```
 
 Searching 2.6MB of personal email (9652 chunks), finding the right person in 4ms, entirely locally. No cloud. No Google. No data leaving the machine.
