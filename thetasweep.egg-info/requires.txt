@@ -1,0 +1,8 @@
+numpy>=1.21
+
+[dev]
+matplotlib
+pytest
+
+[llm]
+llama-cpp-python

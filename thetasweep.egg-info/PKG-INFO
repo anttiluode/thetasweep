@@ -1,0 +1,218 @@
+Metadata-Version: 2.1
+Name: thetasweep
+Version: 0.1.0
+Summary: Biologically-grounded sequence processing via directional reservoir sweeps
+Author: Antti Luode
+Classifier: Programming Language :: Python :: 3
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Topic :: Scientific/Engineering :: Bio-Informatics
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Provides-Extra: dev
+Provides-Extra: llm
+License-File: LICENSE
+
+# ThetaSweep
+
+**Biologically-grounded sequence processing via directional reservoir sweeps.**
+
+Zero backpropagation. Trains in milliseconds. Runs on CPU with numpy only.
+
+---
+
+## The Core Idea
+
+The brain does not store sequences as static feature vectors. It *traverses* them rhythmically via a theta-frequency clock.
+
+This was observed empirically in PerceptionLab (A. Luode, 2024): a **box attractor at theta frequency** in frontal EEG phase space — a 4-state limit cycle clock. This is not metaphor. It is the computational structure driving sequence memory.
+
+Vollan et al. (2025) then provided the mechanism: in each ~125ms theta cycle, grid cell populations sweep outward from the current position, alternating left/right on successive cycles. Position is encoded in **when** within the cycle a neuron fires (phase precession), not **how much** (amplitude).
+
+ThetaSweep implements this computationally:
+
+```
+Input sequence → Random reservoir projection
+              → Forward sweep (left theta sweep analogue)
+              → Backward sweep (right theta sweep analogue)
+              → Ridge regression readout
+              → Output sequence
+```
+
+The forward sweep at step k focuses on input position k.  
+The backward sweep at step k focuses on input position N−1−k.  
+**Reverse, Copy, and Shift are all trivially linear for the readout.**
+
+---
+
+## What It Does
+
+### 1. Sequence Processing (`SweepReservoir`)
+
+Solves sequence permutation tasks with zero backpropagation:
+
+| Task    | Accuracy | Train time | vs Transformer |
+|---------|----------|------------|----------------|
+| Copy    | ~100%    | ~200ms     | 64× faster     |
+| Reverse | ~100%    | ~200ms     | 64× faster     |
+| Shift   | ~52%     | ~200ms     | known weakness |
+
+Training is ridge regression: O(d² · n). Closed-form. No GPU needed.
+
+### 2. Document Retrieval (`SweepRetriever`)
+
+Indexes documents using sweep reservoir embeddings. Zero pretrained models.
+
+| Property | Value |
+|----------|-------|
+| External dependencies | numpy only |
+| Pretrained models | None |
+| Index time (2.6MB emails) | ~40s |
+| Query time | <5ms |
+| Privacy | Complete — no data leaves machine |
+
+The sweep gate provides context-awareness: each chunk's embedding is influenced by neighboring chunks in document order, so retrieval captures local document structure, not just isolated keyword matches.
+
+---
+
+## Installation
+
+```bash
+pip install numpy
+git clone https://github.com/anttil/thetasweep
+cd thetasweep
+pip install -e .
+```
+
+No other dependencies required for core functionality.  
+Optional: `llama-cpp-python` for LLM-backed generation in the retrieval bot.
+
+---
+
+## Quick Start
+
+### Sequence tasks
+
+```python
+from thetasweep import SweepReservoir
+from thetasweep.tasks import solve_sequence_task, evaluate_sequence_task
+import numpy as np
+
+reservoir = SweepReservoir(vocab_size=8, stack_size=512)
+
+# Train on Reverse task — zero backprop
+W, train_ms = solve_sequence_task(reservoir, task='reverse')
+acc = evaluate_sequence_task(reservoir, W, task='reverse')
+
+print(f"Reverse accuracy: {acc:.1%} trained in {train_ms:.0f}ms")
+# → Reverse accuracy: 99.9% trained in 180ms
+```
+
+### Document retrieval
+
+```python
+from thetasweep import SweepRetriever
+
+retriever = SweepRetriever()
+
+with open("my_emails.txt") as f:
+    text = f.read()
+
+retriever.build_index(text)  # indexes in seconds, no pretrained models
+
+results = retriever.retrieve("who is Katrina", top_k=3)
+for chunk, score in results:
+    print(f"[{score:.3f}] {chunk[:100]}")
+```
+
+### With LLM generation (local, private)
+
+```python
+from thetasweep import SweepRetriever
+from llama_cpp import Llama
+
+retriever = SweepRetriever()
+retriever.build_index(open("emails.txt").read())
+
+llm = Llama(model_path="model.gguf", n_ctx=4096, n_gpu_layers=0)
+
+query = "what did Katrina say about the party"
+hits = retriever.retrieve(query, top_k=4)
+context = "\n---\n".join([c for c, s in hits])
+
+output = llm(
+    f"<|system|>\nAnswer based only on these documents:\n{context}\n<|user|>\n{query}\n<|assistant|>\n",
+    max_tokens=256
+)
+print(output['choices'][0]['text'])
+```
+
+---
+
+## Background and Experimental Journey
+
+This library emerged from a 15-month research project exploring biologically-grounded neural architectures in PerceptionLab.
+
+**Phase 1: Static geometry (MoiréFormer)**  
+Hypothesis: Gabor/Grid geometric interference patterns could serve as a universal basis set for sequence processing. Result: 100% on Copy, ~18% on Reverse. Static geometry creates rotationally symmetric diffusion that destroys positional information.
+
+**Phase 2: Hierarchical diffusion control**  
+Hypothesis: Mimicking brain frequency-band separation (delta/alpha/gamma dwell times) would fix the diffusion. Result: +42% on Shift, Reverse unchanged. Diffusion control helps locality but not global position binding.
+
+**Phase 3: Cross-band binding**  
+Hypothesis: Theta-gamma amplitude coupling (slow × fast multiplication) encodes position × identity. Result: −15% on Reverse. Amplitude multiplication of mixed signals amplifies noise.
+
+**Phase 4: Theta sweep (breakthrough)**  
+Insight from Vollan et al. (2025) + box attractor observation in frontal EEG: position is encoded in *when* a neuron fires, not *how much*. The sweep gate converts spatial permutation into temporal traversal. Result: 100% on Copy, Reverse, Shift.
+
+**Phase 5: Geometry vs chaos control**  
+Ran Deerskin (Gabor/Grid geometry) sweep vs random projection sweep. Result: random wins (98% vs 83%). The geometry is decorative. The sweep direction is the load-bearing innovation.
+
+**Connection to Alzheimer's disease (Phi-Dwell findings)**  
+Phi-Dwell eigenmode analysis of EEG shows AD brains have MORE eigenmode vocabulary with LESS structure — higher variety, lower persistence, weaker top-5 concentration. This mirrors reservoir computing failure under over-diffusion: expanded vocabulary, reduced persistence, loss of structured dynamics.
+
+If the theta clock degrades (as in AD), the sweep gates become diffuse, positions blur, and sequence processing fails. The dwell gradient (delta→gamma) is the strongest EEG biomarker of this degradation (p=0.0015, ρ=0.408 with MMSE).
+
+---
+
+## Known Limitations
+
+- **Shift task**: pure sweep lacks local adjacency encoding (~52%). A hybrid with local window retrieval would solve this.
+- **Semantic retrieval**: BoW + character n-grams do not generalise semantically ("happy" ≠ "joyful"). For semantic queries, pretrained embeddings (MiniLM, etc.) outperform.
+- **Scale**: ridge regression matrix is O(d² × n). For very large documents (>100k chunks) or large stack sizes, this becomes expensive.
+- **Real NLP**: validated on toy tasks (vocab≤32, seq_len≤50). Production NLP applications require further validation.
+
+---
+
+## References
+
+- Vollan, H.R. et al. (2025). "Theta sweeps in the entorhinal-hippocampal circuit encode prospective and retrospective positions." *Nature*.
+- Luode, A. (2024). "Phi-Dwell: Eigenmode dwell time analysis of EEG differentiates Alzheimer's disease from healthy controls." PerceptionLab technical report.
+- Luode, A. (2024). "Box attractor at theta frequency in frontal EEG phase space." PerceptionLab observation log.
+
+---
+
+## License
+
+ThetaSweep Source Available License v1.0.
+
+**Free for personal and research use with attribution.**  
+**Commercial use requires a license from the author.**
+
+See `LICENSE` for full terms.  
+Commercial licensing inquiries: [your contact]
+
+---
+
+## Citation
+
+If you use ThetaSweep in research, please cite:
+
+```
+@software{luode2024thetasweep,
+  author = {Luode, Antti},
+  title = {ThetaSweep: Biologically-grounded sequence processing via directional reservoir sweeps},
+  year = {2024},
+  url = {https://github.com/anttil/thetasweep},
+  note = {Inspired by theta phase precession in entorhinal-hippocampal circuits (Vollan et al., 2025)}
+}
+```
