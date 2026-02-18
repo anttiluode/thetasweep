@@ -53,7 +53,7 @@ The backward sweep pre-solves the reversal by construction: at sweep step k, the
 Feed it a text file — emails, a book, research notes, anything — and it converts every chunk into coordinates in the reservoir's high-dimensional space. Then search it.
 
 ```
-[Theta-Nav] >> i wonder about dorinda
+[Theta-Nav] >> i wonder about you
 
 Timeline: [▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒·▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒·▒▒▒▒▒▒▒▒▒▒·▒▒▒▒·▒▒▒▒▒·] (965 hits in 4.1ms)
 
