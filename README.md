@@ -1,6 +1,8 @@
 # ThetaSweep
 
-**Biologically-grounded sequence processing and document retrieval via directional reservoir sweeps.**
+**A hybrid between a search engine and a biological brain simulation.**
+
+ThetaSweep processes information the way the hippocampus does: not as a static list of items, but as a trajectory through time. It is a sweep-based reservoir computer inspired by theta phase precession in the entorhinal-hippocampal circuit.
 
 Zero backpropagation. Trains in milliseconds. Runs on CPU with numpy only.
 
@@ -10,33 +12,35 @@ Zero backpropagation. Trains in milliseconds. Runs on CPU with numpy only.
 
 ---
 
-## The Core Idea
+## What It Is
 
-The brain does not store sequences as static feature vectors. It *traverses* them rhythmically via a theta-frequency clock.
+ThetaSweep is a **Sweep-Based Reservoir Computer** with three components:
 
-This was observed empirically in PerceptionLab (A. Luode, 2024): a **box attractor at theta frequency** in frontal EEG phase space — a 4-state limit cycle clock. This is not metaphor. It is the literal computational structure driving sequence memory in the frontal lobe.
+### 1. The Reservoir (The Frozen Brain)
+A high-dimensional echo chamber of thousands of random neurons. Unlike GPT or Llama, the connections are **fixed and random — nothing is learned here**. Input data is projected into this space where different patterns land in different regions. The randomness is deliberate: high-dimensional random spaces are excellent at keeping things separable.
 
-Vollan et al. (2025) provided the mechanism: in each ~125ms theta cycle, grid cell populations sweep outward from the current position, alternating left/right on successive cycles. Position is encoded in **when** within the cycle a neuron fires (phase precession), not **how much** it fires (amplitude).
+### 2. The Sweep (The Clock)
+This is the core invention. Instead of processing all input at once, the system **scans rhythmically** — like a radar beam, or like the theta oscillations in your hippocampus:
 
-ThetaSweep implements this computationally:
+- **Forward Sweep**: scans input positions left → right
+- **Backward Sweep**: scans input positions right → left
 
-```
-Input sequence → Random reservoir projection
-              → Forward sweep  (left theta sweep analogue)
-              → Backward sweep (right theta sweep analogue)
-              → Ridge regression readout  (zero backprop)
-              → Output
-```
+At each sweep step k, a sharp Gaussian gate focuses on position k and attenuates everything else. This is the computational analogue of **theta phase precession**: position is encoded in *when* the gate focuses, not *how strongly* a neuron fires.
 
-At sweep step k, a sharp Gaussian gate focuses on position k — analogous to theta phase precession. Forward sweep encodes input position k at output step k. Backward sweep encodes input position N-1-k at output step k. **Copy, Reverse, and Shift become trivially linear for the readout.**
+This was not invented from theory. It was discovered empirically: a **box attractor at theta frequency** was observed in frontal EEG phase space using PerceptionLab (A. Luode, 2024) — a 4-state limit cycle clock. Vollan et al. (2025) then provided the biological mechanism: alternating left/right theta sweeps in the entorhinal-hippocampal circuit encoding prospective and retrospective positions.
+
+### 3. The Readout (The Answer)
+A single matrix of weights trained via **ridge regression** — closed-form linear algebra, solved in one shot. No gradient descent. No training epochs. Because the sweep has already organized the data in time, the readout problem is trivially linear.
 
 ---
 
 ## What It Does
 
-### 1. Sequence Processing — `SweepReservoir`
+### A. Solves Sequence Tasks Instantly
 
-Solves sequence permutation tasks with zero backpropagation:
+Standard AI needs thousands of training examples and minutes of backpropagation to learn how to reverse a list. ThetaSweep solves it in milliseconds with zero training epochs.
+
+The backward sweep pre-solves the reversal by construction: at sweep step k, the backward gate focuses on position N-1-k. The readout just reads the backward sweep states in order — no inversion needed, it's already there.
 
 | Task    | Accuracy | Train time | vs Transformer |
 |---------|----------|------------|----------------|
@@ -44,55 +48,87 @@ Solves sequence permutation tasks with zero backpropagation:
 | Reverse | ~100%    | ~200ms     | 64x faster     |
 | Shift   | ~52%     | ~200ms     | known limitation |
 
-Training is ridge regression: closed-form, O(d^2 * n). No GPU. No gradient descent.
+### B. Acts as a Semantic Compass for Documents
 
-### 2. Document Retrieval — `SweepRetriever`
+Feed it a text file — emails, a book, research notes, anything — and it converts every chunk into coordinates in the reservoir's high-dimensional space. Then search it.
 
-Indexes and queries documents using sweep reservoir embeddings. **No pretrained models. No external downloads.**
+```
+[Theta-Nav] >> i wonder about dorinda
 
-| Property | Value |
-|----------|-------|
-| External ML dependencies | None |
-| Pretrained model weights | None |
-| Index time (2.6MB / ~9000 chunks) | ~40s on CPU |
-| Query time | < 5ms |
-| Privacy | Complete — no data leaves the machine |
+Timeline: [▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒·▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒·▒▒▒▒▒▒▒▒▒▒·▒▒▒▒·▒▒▒▒▒·] (965 hits in 4.1ms)
+
+Top Hit (0.235):
+From: dorieforrie@bellsouth.net
+Sent: Friday, August 30, 2024 2:52 PM
+To: Antti Luode <anttinorthwest@hotmail.com>...
+```
+
+Searching 2.6MB of personal email (9652 chunks), finding the right person in 4ms, entirely locally. No cloud. No Google. No data leaving the machine.
+
+**Context-aware**: because of the sweep gate, each chunk carries a memory of its neighbors in document order. Word X is stored with an echo of words X-1 and X+1.
+
+**Timeline visualization**: `readbigfile.py` maps where hits appear across the full document — a spatial view of where a concept lives in your archive, or your life history.
+
+### C. Benchmarked Against the Industry Standard
+
+Tested against BM25 — the retrieval algorithm used inside Elasticsearch — on 50 technical documents with ground-truth query-answer pairs:
+
+```
+Metric      ThetaSweep    BM25 (Elasticsearch)
+Recall@1      96.0%          100.0%
+Recall@3     100.0%          100.0%
+MRR           0.977           1.000
+Query time    0.1ms           0.1ms
+```
+
+**Matches BM25 at Recall@3 with zero pretrained model weights.**
 
 ---
 
-## Benchmarks
+## How It Differs from Standard AI
 
-### Sequence tasks vs Transformer
+| Property | Transformers / LLMs | ThetaSweep |
+|----------|---------------------|------------|
+| Parameters | Billions, all learned | ~0 learned (readout only) |
+| Training | Weeks on GPUs | Milliseconds on CPU |
+| Memory required | 4GB+ | Hundreds of MB |
+| Semantic understanding | Yes (learned from internet) | No |
+| Privacy | Data sent to cloud | Fully local |
+| Interpretable | No (black box) | Yes (inspect every weight) |
+| Generalisation | Broad | Narrow but exact |
+| Dependency | CUDA, huge models | numpy only |
 
-Tested on vocab=8, seq_len=6, 600 training sequences, 200 test sequences:
+Standard AI compresses statistical patterns from vast datasets into billions of weights. It "understands" meaning because it has seen most of human writing.
 
-```
-Task       ThetaSweep    Transformer    Speedup
-Copy         ~100%         100%          64x
-Reverse      ~100%         100%          64x
-Shift         ~52%         100%          — (known weakness)
-```
+ThetaSweep constructs a geometric structure where the answer is already easy to read, then uses the simplest possible mathematics to extract it. It does not understand meaning. It understands *position in time and space*.
 
-### Retrieval vs BM25 (Elasticsearch standard)
+They are not competing tools. They solve different problems.
 
-Tested on 50 technical documents with 50 ground-truth query-answer pairs
-covering neuroscience, ML, physics, and applied engineering topics:
+---
 
-```
-Metric      ThetaSweep    BM25      Delta
-Recall@1      96.0%      100.0%    -4.0%
-Recall@3     100.0%      100.0%    +0.0%
-MRR           0.977       1.000    -0.023
-```
+## What It Might Be Used For
 
-**ThetaSweep matches BM25 at Recall@3 with zero pretrained model weights.**
-BM25 indexes faster (1ms vs 50ms for this corpus size) but both answer in ~0.1ms per query.
+**Personal archive search** — emails, notes, documents, chat logs. Instant local search over years of personal data with no cloud dependency. Export from Gmail, feed to ThetaSweep, query privately forever.
 
-Run the benchmark yourself:
-```bash
-pip install rank-bm25
-python examples/benchmark_vs_bm25.py
-```
+**Edge intelligence** — sensors, embedded systems, Raspberry Pi. Index a pattern library in milliseconds. Detect anomalies against that library in sub-millisecond query time. No model download. No internet required.
+
+**Research tools** — index a corpus of papers, navigate by concept. The timeline visualization shows where ideas cluster across a document collection.
+
+**RAG without the cloud** — combine with a local GGUF model (Llama, Mistral, Phi) for fully private question-answering over personal documents. ThetaSweep handles retrieval, the local LLM handles generation.
+
+**Signal processing** — the sweep reservoir can process time-series signals, not just text. Anomaly detection, pattern matching, classification on sensor data with millisecond training.
+
+---
+
+## Connection to Alzheimer's Disease Research
+
+The same mechanism that breaks ThetaSweep also appears to break human memory in Alzheimer's disease.
+
+Phi-Dwell eigenmode analysis of clinical EEG (Luode, 2024) shows AD brains have **more eigenmode vocabulary with less structure** — higher variety of brain states, lower persistence in any one state, weaker dominance of the top modes. This mirrors exactly what happens to a reservoir computer under over-diffusion: expanded vocabulary, reduced persistence, loss of structured dynamics.
+
+If the theta clock degrades — as it does in early Alzheimer's — the sweep gates become diffuse, positions blur together, and sequence processing fails. The delta-to-gamma dwell gradient is the strongest EEG biomarker found (p=0.0015, ρ=0.408 with MMSE cognitive score).
+
+This is a research hypothesis connecting the computational model to the clinical finding. It is not a validated diagnostic tool.
 
 ---
 
@@ -105,118 +141,57 @@ pip install -e .
 ```
 
 No dependencies beyond numpy for core use.
-Optional: `rank-bm25` for running the benchmark. `llama-cpp-python` for LLM generation.
 
 ---
 
 ## Quick Start
 
-### Sequence tasks
+```bash
+# Sequence tasks
+python examples/sequence_tasks.py
+
+# Document retrieval demo
+python examples/document_retrieval.py
+
+# Navigate a large file interactively
+python examples/readbigfile.py your_document.txt
+
+# Benchmark vs BM25 (requires: pip install rank-bm25)
+python examples/benchmark_vs_bm25.py
+```
+
+### In your own code
+
+```python
+from thetasweep import SweepRetriever
+
+retriever = SweepRetriever()
+retriever.build_index(open("my_emails.txt").read())
+
+results = retriever.retrieve("what did katrina say about the party", top_k=3)
+for chunk, score in results:
+    print(f"[{score:.3f}] {chunk[:100]}")
+```
 
 ```python
 from thetasweep import SweepReservoir
 from thetasweep.tasks import solve_sequence_task, evaluate_sequence_task
 
 reservoir = SweepReservoir(vocab_size=8, stack_size=512)
-
-W, train_ms = solve_sequence_task(reservoir, task='reverse')
+W, ms = solve_sequence_task(reservoir, task='reverse')
 acc = evaluate_sequence_task(reservoir, W, task='reverse')
-
-print(f"Reverse accuracy: {acc:.1%} in {train_ms:.0f}ms")
-# -> Reverse accuracy: 99.9% in 190ms
+print(f"Reverse: {acc:.1%} in {ms:.0f}ms")
 ```
-
-### Document retrieval
-
-```python
-from thetasweep import SweepRetriever
-
-retriever = SweepRetriever()
-
-with open("my_documents.txt") as f:
-    text = f.read()
-
-retriever.build_index(text)
-
-results = retriever.retrieve("what are the Alzheimer findings", top_k=3)
-for chunk, score in results:
-    print(f"[{score:.3f}] {chunk[:100]}")
-```
-
-### With local LLM (fully private, no cloud)
-
-```python
-from thetasweep import SweepRetriever
-from llama_cpp import Llama
-
-retriever = SweepRetriever()
-retriever.build_index(open("documents.txt").read())
-
-llm = Llama(model_path="model.gguf", n_ctx=4096, n_gpu_layers=0)
-
-query = "what does the research say about the theta clock"
-hits = retriever.retrieve(query, top_k=4)
-context = "\n---\n".join([chunk for chunk, score in hits])
-
-output = llm(
-    f"<|system|>\nAnswer based only on:\n{context}\n<|user|>\n{query}\n<|assistant|>\n",
-    max_tokens=256
-)
-print(output['choices'][0]['text'])
-```
-
----
-
-## Examples
-
-```bash
-python examples/sequence_tasks.py       # sequence benchmark
-python examples/document_retrieval.py   # retrieval demo
-python examples/benchmark_vs_bm25.py    # ThetaSweep vs BM25
-```
-
----
-
-## Research Background
-
-This library emerged from a 15-month experimental project in PerceptionLab exploring biologically-grounded neural architectures.
-
-**Phase 1 — Static geometry (MoiréFormer)**
-Hypothesis: Gabor/Grid geometric interference as a universal basis set.
-Result: 100% Copy, ~18% Reverse. Static geometry creates symmetric diffusion that destroys positional information.
-
-**Phase 2 — Hierarchical diffusion control**
-Hypothesis: Mimicking brain frequency-band separation (delta/alpha/gamma).
-Result: +42% on Shift, Reverse unchanged.
-
-**Phase 3 — Cross-band amplitude binding**
-Hypothesis: Theta-gamma amplitude coupling encodes position x identity.
-Result: -15% on Reverse. Amplitude multiplication of mixed signals amplifies noise.
-
-**Phase 4 — Theta sweep (breakthrough)**
-Insight from Vollan et al. (2025) + box attractor in frontal EEG (PerceptionLab, 2024):
-position is encoded in *when* a neuron fires, not *how much*.
-Result: 100% on Copy, Reverse, Shift.
-
-**Phase 5 — Geometry vs random control**
-Deerskin sweep (Gabor/Grid) vs random projection sweep head-to-head.
-Result: random wins 98% vs 83%. The sweep direction is the load-bearing innovation.
-
-### Connection to Alzheimer's disease
-
-Phi-Dwell eigenmode analysis of clinical EEG shows AD brains have more eigenmode vocabulary with less structure — higher variety, lower persistence, weaker concentration in dominant modes. This mirrors reservoir failure under over-diffusion.
-
-If the theta clock degrades, sweep gates become diffuse, positions blur, and sequence processing fails. The delta-to-gamma dwell gradient is the strongest EEG biomarker (p=0.0015, rho=0.408 with MMSE). This is a research hypothesis, not a validated clinical tool.
 
 ---
 
 ## Known Limitations
 
-- **Shift task**: ~52% accuracy. Pure sweep lacks local adjacency encoding.
-- **Semantic retrieval**: BoW + character n-grams do not generalise semantically ("happy" != "joyful"). Pretrained embeddings outperform on semantic queries.
-- **Index speed**: BM25 indexes faster than ThetaSweep on large corpora.
-- **Toy task validation**: Sequence results validated on vocab <= 32, seq_len <= 50.
-- **Not a clinical tool**: The Alzheimer's connection is a research hypothesis.
+- **Shift task**: ~52% accuracy. The sweep lacks local adjacency encoding.
+- **Semantic understanding**: does not generalise ("happy" ≠ "joyful"). Pretrained embeddings outperform on meaning-based queries.
+- **Index speed**: BM25 indexes faster on large corpora (1ms vs 40s for ~10k chunks).
+- **Scale**: ridge regression is O(d² × n). Very large stack sizes on very large corpora become expensive.
+- **Not a clinical tool**: the Alzheimer's connection is a research hypothesis.
 
 ---
 
@@ -244,6 +219,5 @@ If the theta clock degrades, sweep gates become diffuse, positions blur, and seq
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for full terms.
-
+MIT — see [LICENSE](LICENSE).  
 Copyright (c) 2024 Antti Luode
