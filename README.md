@@ -61,6 +61,8 @@ Top Hit (0.235):
 
 ```
 
+Naturally without AI it wont be .. Smart. But it could perhaps work as alternative for AI systems searches / finetunings when tweaked. 
+
 Searching 2.6MB of personal email (9652 chunks), finding the right person in 4ms, entirely locally. No cloud. No Google. No data leaving the machine.
 
 **Context-aware**: because of the sweep gate, each chunk carries a memory of its neighbors in document order. Word X is stored with an echo of words X-1 and X+1.
